@@ -12,20 +12,28 @@ setCSS();
 
 export const expInfo = {
   // settings for the experiment
-  TITLE: "the_name_of_your_experiment",
+  TITLE: "DualSet.Interference.Exp1",
   LANG: "en", // the default language of the experiment
 
-  // design of the experiment
-  DESIGN:{
-    nTRIALS: 1, // number of experiment trials for each condition
-    nBLOCKS: 1, // number of blocks
-    CONDITIONS: [5, 6, 7, 8],
+  DESIGN: {
+    nBlocks: 1, // number of blocks
+    nTrialsPerBlock: 4, // number of total trials in a block
+    itemTypes: ["dot", "clock"],
+    setSize: [3, 6],
+    get nTrialsPerCondition() {
+      return this.nTrialsPerBlock / this.setSize.length / this.itemTypes.length;
+    }, // number of experiment trials for each condition
+    DualSet: false,
+    OrientationGroup: false,
   },
   
   // settings for each trial
   TIMING: {
-    START: 10 * 1000, // time for the countdown before a new trial starts
-    BREAK: 30, // break duration in seconds
+    EncodingDurations: {
+      short: 1000,
+      medium: 2000,
+      long: 2300,
+    },
   },
 
   // when using Prolific, you can set customized completion codes for different situations
