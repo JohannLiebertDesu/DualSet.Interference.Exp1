@@ -27,14 +27,15 @@ import { consent_screen, notice_screen } from "./instructions/consent";
 import { browser_screen } from "./instructions/browserCheck";
 
 // Grid logic and stimuli generation
-import { screenWidth, screenHeight, numColumns, numRows, createGrid, resetGrid, calculateCellSize, generateCircles, Stimulus, selectRandomCircle } from "./gridLogic";
-
-// Color wheel drawing function
-import { drawColorWheel, outerRadius, ratio, calculateColorFromAngle, getAngleFromCoordinates, getRandomRotationAngle } from "./colorWheel";
+import { screenWidth, screenHeight, numColumns, numRows, createGrid, calculateCellSize, placeAndGenerateStimuli, resetGrid, drawGrid, goFullScreen, closeFullScreen } from "./gridAndStimuli";
 
 // Blank screens
-import { blankScreenStageOne, blankScreenStageTwo, blankScreenStageThree } from './blankScreens';
+import { blankScreenStageOne, blankScreenStageTwo, blankScreenStageThree, createColorWheelStage, createOrientationWheelStage } from './trialScreensPreparation';
+import { create } from "domain";
 
+// Calculate the grid cell size and create the grid
+export const grid = createGrid(numColumns, numRows);
+export const { cellWidth, cellHeight } = calculateCellSize(screenWidth, screenHeight, numColumns, numRows);
 
 
 // Basic text display trial
@@ -52,344 +53,357 @@ const basic_text_trial = {
  */
 
 export async function run({
-  assetPaths,
-  input = {},
-  environment,
-  title,
-  version,
-}) {
-  // Initialize a timeline to hold the trials
-  var timeline: any[] = [];
-
-  // Preload assets
-  const preload_screen = {
-    type: preload,
-    images: assetPaths.images,
-    // audio: assetPaths.audio,
-    // video: assetPaths.video,
-  };
-
-  console.log('Building timeline');
-
-  /************************************** Instruction **************************************/
-
-  /************************************** Practice **************************************/
-
-  /************************************** Experiment **************************************/
-
-  // Calculate the grid cell size and create the grid
-  const grid = createGrid(numColumns, numRows);
-  const { cellWidth, cellHeight } = calculateCellSize(screenWidth, screenHeight, numColumns, numRows);
-  console.log('Grid created', grid);
-
-  const displayCirclesStage = {
-    type: psychophysics,
-    stimuli: function () {
-        const numCircles = jsPsych.timelineVariable('numCircles');
-        const side = numCircles === 3 ? (Math.random() < 0.5 ? 'left' : 'right') : 'both';  // Randomly choose left or right for 3 circles
-        console.log('Generating stimuli with numCircles:', numCircles, 'Side:', side);
-        const stimuli = generateCircles(grid, numCircles, cellWidth, cellHeight, side);
-        console.log('Generated Stimuli:', stimuli);  // Debug log
-        // Store the generated stimuli in the trial data for later use
-        jsPsych.data.write({ key: 'stimuli', value: stimuli });
-        return stimuli;
-    },
-    choices: "NO_KEYS",
-    background_color: '#FFFFFF',
-    trial_duration: 1000,
-    on_start: function () {
-        console.log('Display Circles Stage started');
-    },
-    on_finish: function (data) {
-        console.log('Display Circles Stage finished');
-    }
-  };
+    assetPaths,
+    input = {},
+    environment,
+    title,
+    version,
+    }) {
+    // Initialize a timeline to hold the trials
+    var timeline: any[] = [];
   
-  let lastMouseX = 0;
-  let lastMouseY = 0;
-
-  const displayFirstCircleStage = {
-    type: psychophysics,
-    stimuli: function () {
-        let previousStimuli = jsPsych.data.get().values().filter(trial => trial.key === 'stimuli').pop().value;
-        const { selectedStimulus, remainingStimuli } = selectRandomCircle(previousStimuli);
-        jsPsych.data.write({ key: 'stimuli', value: remainingStimuli });
-        console.log('Selected Circle for Display First Circle Stage:', selectedStimulus);
+    // Preload assets
+    const preload_screen = {
+      type: preload,
+      images: assetPaths.images,
+    };
   
-        const rotationAngle = jsPsych.data.get().last(1).values()[0].rotationAngle || getRandomRotationAngle();
-        jsPsych.data.write({ key: 'rotationAngle', value: rotationAngle }); // Save the rotation angle if not present
+    console.log('Building timeline');
   
-        const colorWheelObject = drawColorWheel(outerRadius, ratio, [selectedStimulus.startX, selectedStimulus.startY], rotationAngle);
-  
-        return [
-            colorWheelObject,
-            {
-                ...selectedStimulus,
-                fill_color: 'gray', // Initial color will be set to gray but won't be used until mouse moves
-                line_color: 'gray',
-                original_color: selectedStimulus.original_color,
-                change_attr: function (stim, times, frames) {
-                    // Update only if the mouse has moved
-                    if (frames > 0) {
-                        const canvas = document.querySelector('canvas');
-                        if (canvas) {
-                            const context = canvas.getContext('2d');
-                            if (context) {
-                                const rect = canvas.getBoundingClientRect();
-                                const x = lastMouseX;
-                                const y = lastMouseY;
-                                const centerX = stim.startX;
-                                const centerY = stim.startY;
-                                const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-                                const color = calculateColorFromAngle(angle, rotationAngle); // Use the saved rotation angle
-                                stim.fill_color = color;
-                                stim.line_color = color; // Update the line color to match the fill color
-                                console.log('Color updated to:', color);
-                            } else {
-                                console.error('Context not found');
-                            }
-                        } else {
-                            console.error('Canvas not found');
-                        }
-                    }
-                }
-            }
-        ];
-    },
-    choices: "NO_KEYS",
-    canvas_size: [screenWidth, screenHeight],
-    background_color: '#FFFFFF',  // Set the background color to white
-    on_start: function () {
-        console.log('Display First Circle Stage started');
-    },
-    on_finish: function (data) {
-        console.log('Display First Circle Stage finished');
-    },
-    on_load: function () {
-      const canvas = document.querySelector('canvas');
-      if (canvas) {
-          const context = canvas.getContext('2d');
-          if (context) {
-              const rect = canvas.getBoundingClientRect();
-  
-              const stimuli = jsPsych.data.get().values().filter(trial => trial.key === 'stimuli').pop().value;
-              const currentStimulus = stimuli[stimuli.length - 1];
-  
-              // Get the saved rotation angle
-              const rotationAngle = jsPsych.data.get().last(1).values()[0].rotationAngle;
-  
-              const centerX = currentStimulus.startX;
-              const centerY = currentStimulus.startY;
-  
-              canvas.addEventListener('mousemove', function (e) {
-                  const x = e.clientX - rect.left;
-                  const y = e.clientY - rect.top;
-                  lastMouseX = x;
-                  lastMouseY = y;
-  
-                  const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-                  const color = calculateColorFromAngle(angle, rotationAngle); // Use the saved rotation angle
-  
-                  context.clearRect(0, 0, canvas.width, canvas.height);
-                  drawColorWheel(outerRadius, ratio, [centerX, centerY], rotationAngle).drawFunc(null, canvas, context);
-  
-                  context.fillStyle = color;
-                  context.strokeStyle = color; // Update the border color to match the fill color
-                  context.lineWidth = 5; // Set the border width
-                  context.beginPath();
-                  context.arc(centerX, centerY, 50, 0, 2 * Math.PI);
-                  context.fill();
-                  context.stroke(); // Draw the border
-                  console.log('Mouse moved:', x, y, 'Color:', color);
-              });
-  
-              canvas.addEventListener('click', function (e) {
-                  const x = e.clientX - rect.left;
-                  const y = e.clientY - rect.top;
-                  const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-                  const color = calculateColorFromAngle(angle, rotationAngle); // Use the saved rotation angle
-  
-                  jsPsych.data.write({ selected_color: color });
-                  console.log('Mouse clicked:', x, y, 'Color:', color);
-  
-                  jsPsych.finishTrial();
-              });
-          } else {
-              console.error('Context not found');
-          }
-      } else {
-          console.error('Canvas not found');
-      }
-    }
-  };
+    /************************************** Experiment **************************************/
 
+    /************************************** Block 1 **************************************/
 
-const displaySecondCircleStage = {
-  type: psychophysics,
-  stimuli: function () {
-      let previousStimuli = jsPsych.data.get().values().filter(trial => trial.key === 'stimuli').pop().value;
-      const { selectedStimulus, remainingStimuli } = selectRandomCircle(previousStimuli);
-      jsPsych.data.write({ key: 'stimuli', value: remainingStimuli });
-      console.log('Selected Circle for Display First Circle Stage:', selectedStimulus);
-
-      const rotationAngle = jsPsych.data.get().last(1).values()[0].rotationAngle || getRandomRotationAngle();
-      jsPsych.data.write({ key: 'rotationAngle', value: rotationAngle }); // Save the rotation angle if not present
-
-      const colorWheelObject = drawColorWheel(outerRadius, ratio, [selectedStimulus.startX, selectedStimulus.startY], rotationAngle);
-
-      return [
-          colorWheelObject,
-          {
-              ...selectedStimulus,
-              fill_color: 'gray', // Initial color will be set to gray but won't be used until mouse moves
-              line_color: 'gray',
-              original_color: selectedStimulus.original_color,
-              change_attr: function (stim, times, frames) {
-                  // Update only if the mouse has moved
-                  if (frames > 0) {
-                      const canvas = document.querySelector('canvas');
-                      if (canvas) {
-                          const context = canvas.getContext('2d');
-                          if (context) {
-                              const rect = canvas.getBoundingClientRect();
-                              const x = lastMouseX;
-                              const y = lastMouseY;
-                              const centerX = stim.startX;
-                              const centerY = stim.startY;
-                              const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-                              const color = calculateColorFromAngle(angle, rotationAngle); // Use the saved rotation angle
-                              stim.fill_color = color;
-                              stim.line_color = color; // Update the line color to match the fill color
-                              console.log('Color updated to:', color);
-                          } else {
-                              console.error('Context not found');
-                          }
-                      } else {
-                          console.error('Canvas not found');
-                      }
-                  }
-              }
-          }
-      ];
-  },
-  choices: "NO_KEYS",
-  canvas_size: [screenWidth, screenHeight],
-  background_color: '#FFFFFF',  // Set the background color to white
-  on_start: function () {
-      console.log('Display First Circle Stage started');
-  },
-  on_finish: function (data) {
-      resetGrid(grid, numColumns, numRows);
-      let occupiedCount = grid.filter(cell => cell.occupied).length;
-      console.log('Occupied Count:', occupiedCount);
-      console.log('Display Second Circle Stage finished');
-      return { occupiedCount: occupiedCount };
-  },
-  on_load: function () {
-    const canvas = document.querySelector('canvas');
-    if (canvas) {
-        const context = canvas.getContext('2d');
-        if (context) {
-            const rect = canvas.getBoundingClientRect();
-
-            const stimuli = jsPsych.data.get().values().filter(trial => trial.key === 'stimuli').pop().value;
-            const currentStimulus = stimuli[stimuli.length - 1];
-
-            // Get the saved rotation angle
-            const rotationAngle = jsPsych.data.get().last(1).values()[0].rotationAngle;
-
-            const centerX = currentStimulus.startX;
-            const centerY = currentStimulus.startY;
-
-            canvas.addEventListener('mousemove', function (e) {
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                lastMouseX = x;
-                lastMouseY = y;
-
-                const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-                const color = calculateColorFromAngle(angle, rotationAngle); // Use the saved rotation angle
-
-                context.clearRect(0, 0, canvas.width, canvas.height);
-                drawColorWheel(outerRadius, ratio, [centerX, centerY], rotationAngle).drawFunc(null, canvas, context);
-
-                context.fillStyle = color;
-                context.strokeStyle = color; // Update the border color to match the fill color
-                context.lineWidth = 5; // Set the border width
-                context.beginPath();
-                context.arc(centerX, centerY, 50, 0, 2 * Math.PI);
-                context.fill();
-                context.stroke(); // Draw the border
-                console.log('Mouse moved:', x, y, 'Color:', color);
-            });
-
-            canvas.addEventListener('click', function (e) {
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-                const color = calculateColorFromAngle(angle, rotationAngle); // Use the saved rotation angle
-
-                jsPsych.data.write({ selected_color: color });
-                console.log('Mouse clicked:', x, y, 'Color:', color);
-
-                jsPsych.finishTrial();
-            });
-        } else {
-            console.error('Context not found');
+    const displayStimuliSingleSet = {
+        type: psychophysics,
+        stimuli: function () {
+          const numCircles = jsPsych.timelineVariable('numCircles');
+          const stimulusType = jsPsych.timelineVariable('stimulusType');
+          const side = numCircles === 3 ? 'left' : 'both';
+          console.log('Generating stimuli with numCircles:', numCircles, 'Side:', side, 'Stimulus Type:', stimulusType);
+          const stimuli = placeAndGenerateStimuli(grid, numCircles, cellWidth, cellHeight, side, stimulusType);
+          console.log('Generated Stimuli:', stimuli);
+          jsPsych.data.write({ key: 'stimuli', value: stimuli });
+          jsPsych.data.write({ key: 'stimulusType', value: stimulusType }); // Save stimulus type for later
+          return stimuli;
+        },
+        choices: "NO_KEYS",
+        background_color: '#FFFFFF',
+        trial_duration: 1000,
+        on_start: function () {
+          console.log('Display Circles Stage started');
+        },
+        on_finish: function (data) {
+          console.log('Display Circles Stage finished');
         }
-    } else {
-        console.error('Canvas not found');
-    }
-  },
-};
+      };
+    
+  
+
+  
+      const shouldDisplayColorWheel = () => {
+        const stimulusType = jsPsych.timelineVariable('stimulusType');
+        return stimulusType === 'circle';
+      };
+      
+      const shouldDisplayOrientationWheel = () => {
+        const stimulusType = jsPsych.timelineVariable('stimulusType');
+        return stimulusType === 'circle_with_line';
+      };
+      
+      const colorWheelNode = {
+        timeline: [
+          createColorWheelStage(
+            'Display First Color Wheel',
+            jsPsych.timelineVariable('stimulusType'),
+            'stimuli', // Data key for single set block
+            function (data) {
+              console.log('Display First Color Wheel finished');
+            }
+          )
+        ],
+        conditional_function: shouldDisplayColorWheel
+      };
+      
+      const orientationWheelNode = {
+        timeline: [
+          createOrientationWheelStage(
+            'Display First Orientation Wheel',
+            jsPsych.timelineVariable('stimulusType'),
+            'stimuli', // Data key for single set block
+            function (data) {
+              console.log('Display First Orientation Wheel finished');
+            }
+          )
+        ],
+        conditional_function: shouldDisplayOrientationWheel
+      };
+      
+      const single_set_trial = {
+        timeline: [
+          displayStimuliSingleSet,
+          blankScreenStageOne,
+          colorWheelNode,
+          orientationWheelNode,
+          blankScreenStageTwo,
+          {
+            timeline: [
+              createColorWheelStage(
+                'Display Second Color Wheel',
+                jsPsych.timelineVariable('stimulusType'),
+                'stimuli', // Data key for single set block
+                function (data) {
+                  resetGrid(grid, numColumns, numRows);
+                  console.log('Display Second Color Wheel finished');
+                }
+              )
+            ],
+            conditional_function: shouldDisplayColorWheel
+          },
+          {
+            timeline: [
+              createOrientationWheelStage(
+                'Display Second Orientation Wheel',
+                jsPsych.timelineVariable('stimulusType'),
+                'stimuli', // Data key for single set block
+                function (data) {
+                  resetGrid(grid, numColumns, numRows);
+                  console.log('Display Second Orientation Wheel finished');
+                }
+              )
+            ],
+            conditional_function: shouldDisplayOrientationWheel
+          },
+          blankScreenStageThree
+        ],
+        timeline_variables: [
+          { numCircles: 3, stimulusType: 'circle' },
+          { numCircles: 3, stimulusType: 'circle_with_line' },
+          { numCircles: 6, stimulusType: 'circle' },
+          { numCircles: 6, stimulusType: 'circle_with_line' }
+        ],
+        sample: {
+          type: 'fixed-repetitions',
+          size: 2
+        }
+      };
+      
+            
+    /************************************** Block 2 **************************************/
+
+    const participantGroup = expInfo.DESIGN.participantGroup;
+    const participantBlockType = expInfo.DESIGN.participantBlockType;
+
+    // Display stimuli for the dual set
+
+    const displayStimuliDualSet = {
+        type: psychophysics,
+        stimuli: function () {
+          // Helper function to generate stimuli
+          const generateStimuli = (numCircles, side, stimulusType) => {
+            return placeAndGenerateStimuli(grid, numCircles, cellWidth, cellHeight, side, stimulusType);
+          };
+      
+          // Determine the first and second stimulus types based on participant group
+          const firstStimulusType = (participantGroup === 'colorFirst') ? 'circle' : 'circle_with_line';
+          const secondStimulusType = (firstStimulusType === 'circle') ? 'circle_with_line' : 'circle';
+      
+          // Generate stimuli for both sides
+          const firstStimuli = generateStimuli(3, 'left', firstStimulusType);
+          const secondStimuli = generateStimuli(3, 'right', secondStimulusType);
+      
+          // Log and save data for the first stimuli
+          console.log('First Stimuli:', firstStimuli);
+          jsPsych.data.write({ key: 'firstStimuli', value: firstStimuli });
+          jsPsych.data.write({ key: 'firstStimulusType', value: firstStimulusType });
+      
+          // Log and save data for the second stimuli
+          console.log('Second Stimuli:', secondStimuli);
+          jsPsych.data.write({ key: 'secondStimuli', value: secondStimuli });
+          jsPsych.data.write({ key: 'secondStimulusType', value: secondStimulusType });
+      
+          // Set timing for the stimuli
+          const firstStimuliWithTiming = firstStimuli.map(stim => ({
+            ...stim,
+            show_start_time: 0,
+            show_end_time: 1000
+          }));
+      
+          const blankScreen = {
+            obj_type: 'text',
+            content: '', // Blank screen
+            show_start_time: 1000, // Start after the first stimuli
+            show_end_time: 3000 // End after 2000ms blank screen
+          };
+      
+          const secondStimuliWithTiming = secondStimuli.map(stim => ({
+            ...stim,
+            show_start_time: 3000,
+            show_end_time: 4000
+          }));
+      
+          // Return the sequence of stimuli
+          return [
+            ...firstStimuliWithTiming,
+            blankScreen,
+            ...secondStimuliWithTiming
+          ];
+        },
+        choices: "NO_KEYS",
+        background_color: '#FFFFFF',
+        trial_duration: 4000, // Total duration: 1000ms (first stimuli) + 2000ms (blank) + 1000ms (second stimuli)
+        on_start: function () {
+          console.log('Display Circles Stage started');
+        },
+        on_finish: function (data) {
+          // Store the stimuli information in the trial data
+          const firstStimulusType = (participantGroup === 'colorFirst') ? 'circle' : 'circle_with_line';
+          const secondStimulusType = (firstStimulusType === 'circle') ? 'circle_with_line' : 'circle';
+          jsPsych.data.addProperties({
+            firstStimulusType: firstStimulusType,
+            secondStimulusType: secondStimulusType
+          });
+          console.log('Data stored in on_finish: ', {
+            firstStimulusType: firstStimulusType,
+            secondStimulusType: secondStimulusType
+          });
+          console.log('Display Circles Stage finished');
+        }
+      };
+    
+      // The following code is in preparation for the systematic and random block of the dual set trial
+
+      // Create a conditional timeline for the systematic block of the dual set trial
+      function createConditionalTimeline(firstStimulusType, firstStage, secondStage) {
+        return {
+          timeline: [
+            firstStage,
+            blankScreenStageTwo,
+            secondStage
+          ],
+          conditional_function: function() {
+            const lastTrialData = jsPsych.data.get().last(1).values()[0];
+            return lastTrialData && lastTrialData.firstStimulusType === firstStimulusType;
+          }
+        };
+      }
+      
+        // Create a conditional timeline for the random block of the dual set trial
+      function createRandomConditionalTimeline(randomStimulusType, firstStimulusType, firstStage, secondStage) {
+        return {
+          timeline: [
+            firstStage,
+            blankScreenStageTwo,
+            secondStage
+          ],
+          conditional_function: function() {
+            const lastTrialData = jsPsych.data.get().last(1).values()[0];
+            return jsPsych.timelineVariable('randomStimulusType') === randomStimulusType && lastTrialData && lastTrialData.firstStimulusType === firstStimulusType;
+          }
+        };
+      }
+      
+      // Create a systematic timeline for the dual set trial
+      const systematicTimeline = {
+        timeline: [
+          createConditionalTimeline('circle', 
+            createColorWheelStage('Display First Color Wheel', 'circle', 'firstStimuli', function (data) {}), 
+            createOrientationWheelStage('Display Second Orientation Wheel', 'circle_with_line', 'secondStimuli', function (data) {
+              resetGrid(grid, numColumns, numRows);
+            })
+          ),
+          createConditionalTimeline('circle_with_line', 
+            createOrientationWheelStage('Display First Orientation Wheel', 'circle_with_line', 'firstStimuli', function (data) {}), 
+            createColorWheelStage('Display Second Color Wheel', 'circle', 'secondStimuli', function (data) {
+              resetGrid(grid, numColumns, numRows);
+            })
+          )
+        ],
+        conditional_function: function() {
+          return participantBlockType === 'systematic';
+        }
+      };
+      
+      // Create a random timeline for the dual set trial
+      const randomTimeline = {
+        timeline: [
+          createRandomConditionalTimeline('circle', 'circle', 
+            createColorWheelStage('Display Random Color Wheel', 'circle', 'firstStimuli', function (data) {}), 
+            createOrientationWheelStage('Display Random Orientation Wheel', 'circle_with_line', 'secondStimuli', function (data) {
+              resetGrid(grid, numColumns, numRows);
+            })
+          ),
+          createRandomConditionalTimeline('circle', 'circle_with_line', 
+            createColorWheelStage('Display Random Color Wheel', 'circle', 'secondStimuli', function (data) {}), 
+            createOrientationWheelStage('Display Random Orientation Wheel', 'circle_with_line', 'firstStimuli', function (data) {
+              resetGrid(grid, numColumns, numRows);
+            })
+          ),
+          createRandomConditionalTimeline('circle_with_line', 'circle_with_line', 
+            createOrientationWheelStage('Display Random Orientation Wheel', 'circle_with_line', 'firstStimuli', function (data) {}), 
+            createColorWheelStage('Display Random Color Wheel', 'circle', 'secondStimuli', function (data) {
+              resetGrid(grid, numColumns, numRows);
+            })
+          ),
+          createRandomConditionalTimeline('circle_with_line', 'circle', 
+            createOrientationWheelStage('Display Random Orientation Wheel', 'circle_with_line', 'secondStimuli', function (data) {}), 
+            createColorWheelStage('Display Random Color Wheel', 'circle', 'firstStimuli', function (data) {
+              resetGrid(grid, numColumns, numRows);
+            })
+          )
+        ],
+        conditional_function: function() {
+          return participantBlockType === 'random';
+        }
+      };
+      
+      // Define the dual set trial
+      const dual_set_trial = {
+        timeline: [
+          displayStimuliDualSet,
+          blankScreenStageOne,
+          systematicTimeline,
+          randomTimeline,
+          blankScreenStageThree // Include blankScreenStageThree at the end
+        ],
+        timeline_variables: [
+          { randomStimulusType: 'circle' },
+          { randomStimulusType: 'circle_with_line' }
+        ],
+        sample: {
+          type: 'fixed-repetitions',
+          size: 3
+        }
+      };
+            
+            
+      
+    /************************************** Procedure **************************************/
 
 
-  /************************************** Procedure **************************************/
+      timeline.push(basic_text_trial);
+
+    //   timeline.push(preload_screen);
+    //   timeline.push(welcome_screen);
+    //   timeline.push(consent_screen);
+    //   timeline.push(notice_screen);
+    timeline.push(goFullScreen);
+    //   timeline.push(browser_screen);
+    //   timeline.push(single_set_trial);
+    timeline.push(dual_set_trial);
+    timeline.push(closeFullScreen);
 
 
-  // Define the trial timeline
-const trial = {
-  timeline: [
-      displayCirclesStage,
-      blankScreenStageOne,
-      displayFirstCircleStage,
-      blankScreenStageTwo,
-      displaySecondCircleStage,
-      blankScreenStageThree
-  ],
-  timeline_variables: [
-      { numCircles: 3 },
-      { numCircles: 6 }
-  ],
-  sample: {
-      type: 'fixed-repetitions',
-      size: 5
-  }
-};
-
-  // Push all the screen slides into the timeline
-  // When you want to test the experiment, you can easily comment out the screens you don't want
-
-  // Push the basic text display trial into the timeline
-  timeline.push(basic_text_trial);
-
-  timeline.push(preload_screen);
-  // timeline.push(welcome_screen);
-  // timeline.push(consent_screen);
-  // timeline.push(notice_screen);
-  timeline.push(browser_screen);
-  timeline.push(trial);
-
-  console.log('Timeline built', timeline);
-
-  try {
-    // Run the experiment timeline
-    console.log('Starting jsPsych.run');
-    await jsPsych.run(timeline);
-    console.log('Experiment finished');
-  } catch (error) {
-    console.error('Error running jsPsych experiment:', error);
-  }
+      console.log('Timeline built', timeline);
+      
+      try {
+        // Run the experiment timeline
+        console.log('Starting jsPsych.run');
+        await jsPsych.run(timeline);
+        console.log('Experiment finished');
+      } catch (error) {
+        console.error('Error running jsPsych experiment:', error);
+      }
 
   // Return the jsPsych instance so jsPsych Builder can access the experiment results (remove this
   // if you handle results yourself, be it here or in `on_finish()`)

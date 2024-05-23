@@ -4,17 +4,30 @@
  * @return An array of GridCell objects.
  */
 
-import { random } from "@coglabuzh/webpsy.js";
+import FullscreenPlugin from "@jspsych/plugin-fullscreen";
 
 // Get the screen width and height, as well as number of rows and columns
 export const screenWidth = window.screen.width;  // Get the screen width
 export const screenHeight = window.screen.height;  // Get the screen height
-export const numColumns = 11;  // Set the width of the grid
-export const numRows = 6;  // Set the height of the grid
+export const numColumns = 13;  // Set the width of the grid
+export const numRows = 8;  // Set the height of the grid
 
 const ADJACENCY_LIMIT = 2; // Set the adjacency limit
 const DIAGONAL_ADJACENCY = 1; // Set the diagonal adjacency
 
+// Calculate cell sizes once and export them
+export const cellSize = calculateCellSize(screenWidth, screenHeight, numColumns, numRows);
+export const radius = Math.min(cellSize.cellWidth, cellSize.cellHeight) / 3;
+
+export const goFullScreen = {
+    type: FullscreenPlugin,
+    fullscreen_mode: true
+}
+
+export const closeFullScreen = {
+    type: FullscreenPlugin,
+    fullscreen_mode: false
+}
 
 // Calculate the cell size based on the screen dimensions and grid size
 export function calculateCellSize(screenWidth, screenHeight, numColumns, numRows) {
@@ -107,63 +120,47 @@ export function randomColor() {
 }
 
 export type Stimulus = {
-    obj_type: 'circle';
-    startX: number;
-    startY: number;
-    radius: number;
-    line_color: string;
-    fill_color: string;
-    original_color: string;
+    obj_type: 'circle' | 'circle_with_line' | 'line';
+    startX?: number;
+    startY?: number;
+    radius?: number;
+    line_color?: string;
+    fill_color?: string;
+    original_color?: string;
+    angle?: number; // Angle of the line
+    line_length?: number; // Length of the line
+    line_width?: number; // Width of the line
+    x1?: number; // Start x-coordinate of the line
+    y1?: number; // Start y-coordinate of the line
+    x2?: number; // End x-coordinate of the line
+    y2?: number; // End y-coordinate of the line
 };
 
-export function generateCircles(grid: GridCell[], numCircles: number, cellWidth: number, cellHeight: number, side: 'left' | 'right' | 'both'): Stimulus[] {
+
+export function placeAndGenerateStimuli(grid: GridCell[], numCircles: number, cellWidth: number, cellHeight: number, side: 'left' | 'right' | 'both', stimulusType: 'circle' | 'circle_with_line'): Stimulus[] {
     const stimuli: Stimulus[] = [];
 
     if (numCircles === 6 && side === 'both') {
         for (let i = 0; i < 3; i++) {
             let cell = selectAndOccupyCell(grid, 'left');
             if (cell) {
-                const color = randomColor();
-                stimuli.push({
-                    obj_type: 'circle',
-                    startX: cell.x * cellWidth + cellWidth / 2,
-                    startY: cell.y * cellHeight + cellHeight / 2,
-                    radius: Math.min(cellWidth, cellHeight) / 4,
-                    line_color: color,
-                    fill_color: color,
-                    original_color: color // Save the original color
-                });
+                const newStimuli = createStimulus(cell, cellWidth, cellHeight, stimulusType);
+                stimuli.push(...newStimuli);
             }
         }
         for (let i = 0; i < 3; i++) {
             let cell = selectAndOccupyCell(grid, 'right');
             if (cell) {
-                const color = randomColor();
-                stimuli.push({
-                    obj_type: 'circle',
-                    startX: cell.x * cellWidth + cellWidth / 2,
-                    startY: cell.y * cellHeight + cellHeight / 2,
-                    radius: Math.min(cellWidth, cellHeight) / 4,
-                    line_color: color,
-                    fill_color: color,
-                    original_color: color // Save the original color
-                });
+                const newStimuli = createStimulus(cell, cellWidth, cellHeight, stimulusType);
+                stimuli.push(...newStimuli);
             }
         }
     } else {
         for (let i = 0; i < numCircles; i++) {
             let cell = selectAndOccupyCell(grid, side);
             if (cell) {
-                const color = randomColor();
-                stimuli.push({
-                    obj_type: 'circle',
-                    startX: cell.x * cellWidth + cellWidth / 2,
-                    startY: cell.y * cellHeight + cellHeight / 2,
-                    radius: Math.min(cellWidth, cellHeight) / 4,
-                    line_color: color,
-                    fill_color: color,
-                    original_color: color // Save the original color
-                });
+                const newStimuli = createStimulus(cell, cellWidth, cellHeight, stimulusType);
+                stimuli.push(...newStimuli);
             }
         }
     }
@@ -171,11 +168,95 @@ export function generateCircles(grid: GridCell[], numCircles: number, cellWidth:
     return stimuli;
 }
 
+function createStimulus(cell: GridCell, cellWidth: number, cellHeight: number, stimulusType: 'circle' | 'circle_with_line'): Stimulus[] {
+    const color = randomColor();
+    const stimuli: Stimulus[] = [];
+
+    const centerX = cell.x * cellWidth + cellWidth / 2;
+    const centerY = cell.y * cellHeight + cellHeight / 2;
+
+    if (stimulusType === 'circle') {
+        stimuli.push({
+            obj_type: 'circle',
+            startX: centerX,
+            startY: centerY,
+            radius: radius,
+            line_color: color,
+            fill_color: color,
+            original_color: color // Save the original color
+        });
+    } else if (stimulusType === 'circle_with_line') {
+        const angle = Math.random() * 2 * Math.PI; // Random angle in radians
+        const line_length = radius; // Line length is equal to the radius
+        const line_width = 2; // Define line width as needed
+
+        const endX = centerX + line_length * Math.cos(angle);
+        const endY = centerY + line_length * Math.sin(angle);
+
+        stimuli.push({
+            obj_type: 'circle',
+            startX: centerX,
+            startY: centerY,
+            radius: radius,
+            line_color: 'black',
+            fill_color: 'transparent', // No fill for circle_with_line
+            original_color: 'transparent'
+        });
+        stimuli.push({
+            obj_type: 'line',
+            x1: centerX,
+            y1: centerY,
+            x2: endX,
+            y2: endY,
+            line_color: 'black',
+            line_width: line_width
+        });
+    }
+
+    return stimuli;
+}
+
+
 export function selectRandomCircle(stimuli) {
-    const randomIndex = random.randint(0, stimuli.length - 1);  // Adjusted to get a valid index
-    const selectedStimulus = stimuli[randomIndex];
-    const remainingStimuli = stimuli.filter((_, index) => index !== randomIndex);
+    // Filter to get only circles
+    const circles = stimuli.filter(stim => stim.obj_type === 'circle');
+    console.log('Circles:', circles);
+  
+    // Select a random circle
+    const randomIndex = Math.floor(Math.random() * circles.length);
+    const selectedStimulus = circles[randomIndex];
+  
+    // Use the properties of the selected circle to remove the circle
+    const remainingStimuli = stimuli.filter(stim => {
+      return !(stim.startX === selectedStimulus.startX && stim.startY === selectedStimulus.startY);
+    });
+  
+    console.log('remainingStimuli:', remainingStimuli);
     return { selectedStimulus, remainingStimuli };
+  }
+  
+  
+// Create the grid
+const grid = createGrid(numColumns, numRows);
+
+// Function to draw the grid on canvas
+export function drawGrid(grid: GridCell[]): HTMLCanvasElement | null {
+    const canvas = document.createElement('canvas');
+    canvas.width = screenWidth;
+    canvas.height = screenHeight;
+    const context = canvas.getContext('2d');
+
+    if (context && cellSize) {
+        grid.forEach(cell => {
+            context.fillStyle = cell.occupied ? 'red' : 'green';
+            context.fillRect(cell.x * cellSize.cellWidth, cell.y * cellSize.cellHeight, cellSize.cellWidth, cellSize.cellHeight);
+            context.strokeRect(cell.x * cellSize.cellWidth, cell.y * cellSize.cellHeight, cellSize.cellWidth, cellSize.cellHeight);
+        });
+        return canvas;
+    } else {
+        console.error('Canvas context or cellSize is null');
+        return null;
+    }
 }
 
 
