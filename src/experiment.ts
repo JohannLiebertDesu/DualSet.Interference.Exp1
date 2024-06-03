@@ -1,7 +1,7 @@
 /**
  * @title DualSet.Interference.Exp1
  * @description Systematically varying the combination possibilities and numbers of 2 sets that need to be memorized, including color patches and orientations. Variations include screen side, mixing or separating the qualitatively different items. Each trial concludes with the reproduction of 2 items.
- * @author Chenyu Li, chatGPT and Noah Rischert
+ * @author Chenyu Li, ChatGPT and Noah Rischert
  * @version 0.2.1
  *
  *
@@ -14,12 +14,10 @@ import "../styles/main.scss";
 // jsPsych official plugin
 import preload from "@jspsych/plugin-preload";
 import psychophysics from "@kurokida/jspsych-psychophysics";
-import htmlKeyboardResponse from "@jspsych/plugin-html-keyboard-response";
 
 // Global variables
 import { jsPsych } from "./jsp";
-import { expInfo } from "./settings";
-import { random } from "@coglabuzh/webpsy.js";
+import { expInfo, varSystem } from "./settings";
 
 // screens
 import { welcome_screen } from "./instructions/welcome";
@@ -28,6 +26,9 @@ import { browser_screen } from "./instructions/browserCheck";
 import { fullMode_screen } from "./instructions/fullScreen";
 import { instructionSlidesConfig } from "./instructions/InstrStart";
 import { getDualSetWarning, singleSetWarning } from "./instructions/InstrWarnings";
+import { breakOne, breakTwo } from "./instructions/breaks";
+import { survey_screen } from "./experimentEnd/survey";
+import { debrief_screen } from "./experimentEnd/debriefing";
 
 // Grid logic and stimuli generation
 import { screenWidth, screenHeight, numColumns, numRows, createGrid, calculateCellSize, placeAndGenerateStimuli, resetGrid, closeFullScreen } from "./gridAndStimuli";
@@ -74,24 +75,34 @@ export async function run({
 
 // Prepare displaying the stimuli for the single set
 const displayStimuliSingleSet = {
-    type: psychophysics,
-    stimuli: function () {
-        const numCircles = jsPsych.timelineVariable('numCircles');
-        const stimulusType = jsPsych.timelineVariable('stimulusType');
-        const side = numCircles === 3 ? 'left' : 'both';
-        const stimuli = placeAndGenerateStimuli(grid, numCircles, cellWidth, cellHeight, side, stimulusType);
-        jsPsych.data.write({ key: 'stimuli', value: stimuli });
-        jsPsych.data.write({ key: 'stimulusType', value: stimulusType }); // Save stimulus type for later
-        return stimuli;
-    },
-    choices: "NO_KEYS",
-    background_color: '#FFFFFF',
-    trial_duration: function() {
-        return 100 * jsPsych.timelineVariable('numCircles');
-    },
-    on_start: function () {},
-    on_finish: function (data) {}
+  type: psychophysics,
+  stimuli: function () {
+      const numCircles = jsPsych.timelineVariable('numCircles');
+      const stimulusType = jsPsych.timelineVariable('stimulusType');
+      const side = numCircles === 3 ? 'left' : 'both';
+      const stimuli = placeAndGenerateStimuli(grid, numCircles, cellWidth, cellHeight, side, stimulusType);
+      jsPsych.data.write({ key: 'stimuli', value: stimuli });
+      jsPsych.data.write({ key: 'stimulusType', value: stimulusType }); // Save stimulus type for later
+      return stimuli;
+  },
+  choices: "NO_KEYS",
+  background_color: '#FFFFFF',
+  trial_duration: function() {
+      return 100 * jsPsych.timelineVariable('numCircles');
+  },
+  on_start: function (trial) {
+      trial.start_time = performance.now(); // Log start time
+      console.log(`Trial started at ${trial.start_time}`);
+  },
+  on_finish: function (data) {
+      const end_time = performance.now(); // Log end time
+      const duration = end_time - data.start_time; // Calculate duration
+      jsPsych.data.write({ key: 'actual_trial_duration', value: duration }); // Save duration
+      console.log(`Trial ended at ${end_time}`);
+      console.log(`Trial duration set: ${100 * jsPsych.timelineVariable('numCircles')} ms, Actual duration: ${duration} ms`);
+  }
 };
+
 
 // The folloing are just some tools for timeline construction of the single set trial
 
@@ -392,14 +403,13 @@ const single_set_trial = {
     /************************************** Procedure **************************************/
 
 
-    //   timeline.push(preload_screen);
-    //   timeline.push(welcome_screen);
-    //   timeline.push(consent_screen);
-    //   timeline.push(notice_screen);
-    timeline.push(preload_screen);
-    timeline.push(browser_screen);
-    timeline.push(fullMode_screen);
-    timeline.push(instructionSlidesConfig);
+    // timeline.push(preload_screen);
+    // timeline.push(welcome_screen);
+    // timeline.push(consent_screen);
+    // timeline.push(notice_screen);
+    // timeline.push(browser_screen);
+    // timeline.push(fullMode_screen);
+    // timeline.push(instructionSlidesConfig);
 
     if (expInfo.DESIGN.participantBlockOrder === 'dualSetFirst') {
       timeline.push(getDualSetWarning(expInfo.DESIGN.participantBlockType));
@@ -413,6 +423,8 @@ const single_set_trial = {
       timeline.push(dual_set_trial);
   }
 
+    timeline.push(debrief_screen);
+    timeline.push(survey_screen);
     timeline.push(closeFullScreen);
     console.log("Final Timeline: ", timeline);
 
