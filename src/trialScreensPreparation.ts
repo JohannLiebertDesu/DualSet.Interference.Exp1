@@ -6,10 +6,15 @@ import psychophysics from "@kurokida/jspsych-psychophysics";
 import htmlKeyboardResponse from "@jspsych/plugin-html-keyboard-response";
 
 // Grid logic and stimuli generation
-import { screenWidth, screenHeight, selectRandomCircle, radius } from "./gridAndStimuli";
+import { screenWidth, screenHeight, selectRandomCircle, radius, Stimulus } from "./gridAndStimuli";
 
 // Color wheel drawing function
 import { drawColorWheel, outerRadius, ratio, calculateColorFromAngle, getAngleFromCoordinates, getRandomRotationAngle, drawOrientationWheel } from "./drawWheels";
+
+// Data saving code
+import { storeTrialData } from "./data/dataStorage"; 
+import { subjectID } from "./participantCounterbalancing";
+import { counters, expInfo } from "./settings";
 
 
 function createBlankScreenStage(duration: number, stageName: string) {
@@ -38,6 +43,8 @@ let lastMouseY = 0;
 
 // Creating the color wheel stage
 
+let currentStimuli: Stimulus[] = []; // Global variable to store stimuli
+
 export const createColorWheelStage = (stageName, stimulusType, dataKey, onFinishCallback) => ({
   type: psychophysics,
   stimuli: function () {
@@ -49,15 +56,17 @@ export const createColorWheelStage = (stageName, stimulusType, dataKey, onFinish
       console.error('No previous stimuli found.');
       return [];
     }
-    
+
     const { selectedStimulus, remainingStimuli } = selectRandomCircle(previousStimuli);
     jsPsych.data.write({ key: 'stimuli', value: remainingStimuli });
-    console.log(`Selected Circle for ${stageName}:`, selectedStimulus);
 
-    const rotationAngle = jsPsych.data.get().last(1).values()[0].rotationAngle || getRandomRotationAngle();
+    const rotationAngle = getRandomRotationAngle();
     jsPsych.data.write({ key: 'rotationAngle', value: rotationAngle });
 
     const colorWheelObject = drawColorWheel(outerRadius, ratio, [selectedStimulus.startX, selectedStimulus.startY], rotationAngle);
+
+    // Store the selected stimulus in the global variable
+    currentStimuli = [selectedStimulus];
 
     return [
       colorWheelObject,
@@ -97,9 +106,51 @@ export const createColorWheelStage = (stageName, stimulusType, dataKey, onFinish
   background_color: '#FFFFFF',
   on_start: function () {
     console.log(`${stageName} started`);
+    // Record the start time of the trial
+    this.start_time = performance.now();
   },
-  on_finish: onFinishCallback || function (data) {
+  on_finish: function (data) {
     console.log(`${stageName} finished`);
+    // Calculate the reaction time
+    const end_time = performance.now();
+    const reactionTime = end_time - this.start_time;
+    // Retrieve the stimuli from the global variable
+    const selectedStimulus = currentStimuli.find(stim => stim.fill_color !== 'gray');
+    if (!selectedStimulus) {
+      console.error('Selected stimulus not found');
+      return;
+    }
+
+    const actualColor = selectedStimulus.original_color;
+    const actualPosition = { startX: selectedStimulus.startX, startY: selectedStimulus.startY };
+    const selectedColor = data.selected_color;  // Access the selected color directly from data
+
+    const trialData = {
+      practice: jsPsych.timelineVariable('practice'),
+      trialNumberThisBlock: counters.trialNumberThisBlock - 1,  // Subtract 1 to account for the increment in the counter which happens before the second part of the same trial occurs. This is not ideal, but it is a workaround.
+      trialNumberOverall: counters.trialNumberOverall - 1,  // Same as above
+      blockNumber: counters.blockNumber,
+      segmentNumber: counters.segmentNumber,
+      subjectID: subjectID,
+      whichStimuliFirst: expInfo.DESIGN.participantGroup,
+      areTrialsRandomOrSystematic: expInfo.DESIGN.participantBlockType,
+      dualOrSingleSetFirst: expInfo.DESIGN.participantBlockOrder,
+      stimulusType: stimulusType,  // Use the parameter value directly
+      reactionTime: reactionTime || null,
+      actualColor: actualColor || null,
+      selectedColor: selectedColor || null,
+      actualPosition: actualPosition || null
+    };
+
+    console.log('Trial Data:', trialData);
+
+    // Ensure the data is stored
+    storeTrialData(trialData);
+
+    // Conditionally execute the provided onFinishCallback
+    if (onFinishCallback) {
+      onFinishCallback(data);
+    }
   },
   on_load: function () {
     const canvas = document.querySelector('canvas');
@@ -109,11 +160,13 @@ export const createColorWheelStage = (stageName, stimulusType, dataKey, onFinish
         const rect = canvas.getBoundingClientRect();
         const stimuli = jsPsych.data.get().values().filter(trial => trial.key === 'stimuli').pop().value;
         const currentStimulus = stimuli[stimuli.length - 1];
-        const rotationAngle = jsPsych.data.get().last(1).values()[0].rotationAngle;
+        const lastRotationAngleEntry = jsPsych.data.get().filter({ key: 'rotationAngle' }).last(1).values()[0];
+        const rotationAngle = lastRotationAngleEntry ? lastRotationAngleEntry.value : undefined;       
         const centerX = currentStimulus.startX;
         const centerY = currentStimulus.startY;
 
         canvas.addEventListener('mousemove', function (e) {
+          const rect = canvas.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const y = e.clientY - rect.top;
           lastMouseX = x;
@@ -140,10 +193,9 @@ export const createColorWheelStage = (stageName, stimulusType, dataKey, onFinish
           const angle = getAngleFromCoordinates(x, y, centerX, centerY);
           const color = calculateColorFromAngle(angle, rotationAngle);
 
-          jsPsych.data.write({ selected_color: color });
-          console.log('Mouse clicked:', x, y, 'Color:', color);
-
-          jsPsych.finishTrial();
+          jsPsych.finishTrial({
+            selected_color: color  // Pass the selected color directly to the on_finish function
+          });
         });
       } else {
         console.error('Context not found');
@@ -154,13 +206,16 @@ export const createColorWheelStage = (stageName, stimulusType, dataKey, onFinish
   }
 });
 
-export const createOrientationWheelStage = (stageName, stimulusType, dataKey, onFinishCallback) => ({
+
+let selectedStimulusGlobal: Stimulus | null = null; // Initialize as null
+
+export const createOrientationWheelStage = (stageName: string, stimulusType: string, dataKey: string, onFinishCallback?: (data: any) => void) => ({
   type: psychophysics,
   stimuli: function () {
     console.log('Stimulus Type:', stimulusType);
     console.log('Data Key:', dataKey);
 
-    let previousStimuli = jsPsych.data.get().values().filter(trial => trial.key === dataKey).pop()?.value || [];
+    let previousStimuli: Stimulus[] = jsPsych.data.get().values().filter(trial => trial.key === dataKey).pop()?.value || [];
     if (previousStimuli.length === 0) {
       console.error('No previous stimuli found.');
       return [];
@@ -174,11 +229,17 @@ export const createOrientationWheelStage = (stageName, stimulusType, dataKey, on
     jsPsych.data.write({ key: 'stimuli', value: remainingStimuli });
     console.log(`Selected Circle for ${stageName}:`, selectedStimulus);
 
-    const orientationWheelObject = drawOrientationWheel(outerRadius, ratio, [selectedStimulus.startX, selectedStimulus.startY]);
+    selectedStimulusGlobal = selectedStimulus; // Set the global variable
 
-    const centerX = selectedStimulus.startX;
-    const centerY = selectedStimulus.startY;
-    const lineWidth = 2;
+    const centerX: number | undefined = selectedStimulus.startX;
+    const centerY: number | undefined = selectedStimulus.startY;
+
+    if (centerX === undefined || centerY === undefined) {
+      console.error('Selected stimulus does not have valid startX or startY.');
+      return [];
+    }
+
+    const orientationWheelObject = drawOrientationWheel(outerRadius, ratio, [centerX, centerY]);
 
     console.log(`Initial center coordinates: centerX = ${centerX}, centerY = ${centerY}`);
 
@@ -190,9 +251,8 @@ export const createOrientationWheelStage = (stageName, stimulusType, dataKey, on
         line_color: 'black' // Black border
       },
       {
+        // This part is responsible for continuously updating the line based on mouse movement. To achieve this, it relies on the global variables lastMouseX and lastMouseY which are constantly updated by the mousemove event listener.
         obj_type: 'manual',
-        startX: centerX,
-        startY: centerY,
         drawFunc: function (stimulus, canvas, context) {
           const x = lastMouseX;
           const y = lastMouseY;
@@ -224,46 +284,106 @@ export const createOrientationWheelStage = (stageName, stimulusType, dataKey, on
   background_color: '#FFFFFF',
   on_start: function () {
     console.log(`${stageName} started`);
+
+    // Record the start time of the trial
+    this.start_time = performance.now();
   },
-  on_finish: onFinishCallback || function (data) {
+  on_finish: function (data) {
+        
     console.log(`${stageName} finished`);
-  },
+  
+    // Calculate the reaction time
+    const end_time = performance.now();
+    const reactionTime = end_time - this.start_time;
+  
+    // Retrieve the stimuli from the global variable
+    if (selectedStimulusGlobal) { // Check if selectedStimulusGlobal is not null
+      const selectedStimulus = selectedStimulusGlobal;
+      if (!selectedStimulus) {
+        console.error('Selected stimulus not found');
+        return;
+      }
+  
+      const actualOrientation = {
+        startX: selectedStimulus.startX,
+        startY: selectedStimulus.startY
+      };
+      const selectedOrientation = data.selected_line_end;
+      const actualPosition = { startX: selectedStimulus.startX, startY: selectedStimulus.startY };
+  
+      const trialData = {
+        practice: jsPsych.timelineVariable('practice'),
+        trialNumberThisBlock: counters.trialNumberThisBlock - 1,  // Subtract 1 to account for the increment in the counter which happens before the second part of the same trial occurs. This is not ideal, but it is a workaround.
+        trialNumberOverall: counters.trialNumberOverall - 1,  // Same as above
+        blockNumber: counters.blockNumber,
+        segmentNumber: counters.segmentNumber,
+        subjectID: subjectID,
+        whichStimuliFirst: expInfo.DESIGN.participantGroup,
+        areTrialsRandomOrSystematic: expInfo.DESIGN.participantBlockType,
+        dualOrSingleSetFirst: expInfo.DESIGN.participantBlockOrder,
+        stimulusType: stimulusType,  // Use the parameter value directly
+        reactionTime: reactionTime || null,
+        actualPosition: actualPosition || null,
+        actualOrientation: actualOrientation || null,
+        selectedOrientation: selectedOrientation || null,
+      };
+  
+      console.log('Trial Data:', trialData);
+  
+      // Ensure the data is stored
+      storeTrialData(trialData);
+  
+      // Conditionally execute the provided onFinishCallback
+      if (onFinishCallback) {
+        onFinishCallback(data);
+      }
+    }
+  },  
   on_load: function () {
     const canvas = document.querySelector('canvas');
     if (canvas) {
       const context = canvas.getContext('2d');
       if (context) {
         const rect = canvas.getBoundingClientRect();
-        const stimuli = jsPsych.data.get().values().filter(trial => trial.key === 'stimuli').pop().value;
-        const currentStimulus = stimuli[stimuli.length - 1];
-        const centerX = currentStimulus.startX;
-        const centerY = currentStimulus.startY;
 
-        console.log(`Loaded center coordinates: centerX = ${centerX}, centerY = ${centerY}`);
+        if (selectedStimulusGlobal) { // Check if selectedStimulusGlobal is not null
+          const currentStimulus = selectedStimulusGlobal;
+          const centerX: number | undefined = currentStimulus.startX;
+          const centerY: number | undefined = currentStimulus.startY;
 
-        canvas.addEventListener('mousemove', function (e) {
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
-          lastMouseX = x;
-          lastMouseY = y;
-          console.log('mousemove event:', x, y);
-        });
+          if (centerX === undefined || centerY === undefined) {
+            console.error('Selected stimulus does not have valid startX or startY.');
+            return;
+          }
 
-        canvas.addEventListener('click', function (e) {
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
+          console.log(`Loaded center coordinates: centerX = ${centerX}, centerY = ${centerY}`);
 
-          console.log('click event:', x, y);
+          canvas.addEventListener('mousemove', function (e) {
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            lastMouseX = x;
+            lastMouseY = y;
+          });
 
-          const angle = getAngleFromCoordinates(x, y, centerX, centerY);
-          const x2 = centerX + radius * Math.cos(angle * Math.PI / 180);
-          const y2 = centerY + radius * Math.sin(angle * Math.PI / 180);
+          canvas.addEventListener('click', function (e) {
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
 
-          jsPsych.data.write({ selected_orientation: { x2, y2 } });
-          console.log('Mouse clicked:', x, y, 'Line end:', x2, y2);
+            console.log('click event:', x, y);
 
-          jsPsych.finishTrial();
-        });
+            const angle = getAngleFromCoordinates(x, y, centerX, centerY);
+            const x2 = centerX + radius * Math.cos(angle * Math.PI / 180);
+            const y2 = centerY + radius * Math.sin(angle * Math.PI / 180);
+
+            console.log('Mouse clicked:', x, y, 'Line end:', x2, y2);
+
+            jsPsych.finishTrial({
+              selected_line_end: { x2: x2, y2: y2 } // Pass the selected line end as an object with x and y properties
+            });
+          });
+        } else {
+          console.error('Selected stimulus is not available');
+        }
       } else {
         console.error('Context not found');
       }
@@ -272,9 +392,6 @@ export const createOrientationWheelStage = (stageName, stimulusType, dataKey, on
     }
   }
 });
-
-
-
 
 
 
