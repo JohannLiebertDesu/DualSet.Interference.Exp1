@@ -1,12 +1,14 @@
 /**
  * @title DualSet.Interference.Exp1
  * @description Systematically varying the combination possibilities and numbers of 2 sets that need to be memorized, including color patches and orientations. Variations include screen side, mixing or separating the qualitatively different items. Each trial concludes with the reproduction of 2 items.
- * @author Chenyu Li, ChatGPT and Noah Rischert
- * @version 0.2.1
+ * @author Noah Rischert, Chenyu Li and ChatGPT 4o
+ * @version 1.0.1
  *
  *
  * @assets assets/
  */
+
+// Here we just generally import all the relevant files and packages. The packages are imported from the node_modules folder, and are a central component of jsPsych. Most of them come from the jsPsych library, some of them were made by our lab. 
 
 // import stylesheets (.scss or .css).
 import "../styles/main.scss";
@@ -15,11 +17,11 @@ import "../styles/main.scss";
 import preload from "@jspsych/plugin-preload";
 import psychophysics from "@kurokida/jspsych-psychophysics";
 import jsPsychCallFunction from "@jspsych/plugin-call-function";
+import HtmlKeyboardResponsePlugin from "@jspsych/plugin-html-keyboard-response";
 
 // Global variables
 import { jsPsych } from "./jsp";
-import { expInfo, varSystem, counters } from "./settings";
-import { subjectID } from "./participantCounterbalancing";
+import { DESIGN, counters, assignParticipantGroup } from "./settings";
 
 // screens
 import { welcome_screen } from "./instructions/welcome";
@@ -39,8 +41,9 @@ import { screenWidth, screenHeight, numColumns, numRows, createGrid, calculateCe
 // Trial screens preparation
 import { blankScreenStageOneShort, blankScreenStageOneLong, blankScreenStageTwo, blankScreenStageThree, createColorWheelStage, createOrientationWheelStage } from './trialScreensPreparation';
 
-
 import { create } from "domain";
+
+import { assignSubjectID, initializeSubjectsList } from "./participantCounterbalancing";
 
 // Import the data storage function
 import { storeTrialData, incrementCounters, resetBlockCounters, incrementSegmentNumber, resetTrialinBlockCounter } from './data/dataStorage';
@@ -49,6 +52,13 @@ import { storeTrialData, incrementCounters, resetBlockCounters, incrementSegment
 export const grid = createGrid(numColumns, numRows);
 export const { cellWidth, cellHeight } = calculateCellSize(screenWidth, screenHeight, numColumns, numRows);
 
+// Initialize subjectID with a type annotation to be number or null
+let subjectID: number | null = null;
+
+// Export subjectID
+export { subjectID };
+
+// Here we come to the main component of the code, the experiment itself. All of it is executed as part of the run function (so jsPsych.run), which is automatically executed when jsPsych is initialized. This happens in the jsp.ts file.
 /**
  * This function will be executed by jsPsych Builder and is expected to run the jsPsych experiment
  *
@@ -62,8 +72,9 @@ export async function run({
     title,
     version,
     }) {
-    // Initialize a timeline to hold the trials
-    var timeline: any[] = [];
+
+    // Initialize a main timeline to hold the trials. JsPsych will at the very beginning of the experiment prepare and define all the timelines (which are all considered as unique trials by jsPsych) that we added to the main timeline, and then run them one by one.
+    var main_timeline: any[] = [];
   
     // Preload assets
     const preload_screen = {
@@ -76,10 +87,13 @@ export async function run({
 
     /************************************** Experiment **************************************/
 
+    // I have separated the code into different sections, one for the preparation of the first kind of block type (single set), and one for the second kind of block type (dual set). Then, in a third part, I push all of the trials i have created into the timelines.
+
     /************************************** Block 1 preparation **************************************/
 
 // Prepare displaying the stimuli for the single set
-// Global variable to store stimuli temporarily
+
+// Global variable to store stimuli temporarily, this kind of stuff is done to appese TypeScript
 let currentStimuli: Stimulus[] = [];
 
 const displayStimuliSingleSet = {
@@ -182,9 +196,9 @@ const displayStimuliSingleSet = {
       blockNumber: counters.blockNumber,
       segmentNumber: counters.segmentNumber,
       subjectID: subjectID,
-      whichStimuliFirst: expInfo.DESIGN.participantGroup,
-      areTrialsRandomOrSystematic: expInfo.DESIGN.participantBlockType,
-      dualOrSingleSetFirst: expInfo.DESIGN.participantBlockOrder,
+      whichStimuliFirst: DESIGN.participantGroup,
+      areTrialsRandomOrSystematic: DESIGN.participantBlockType,
+      dualOrSingleSetFirst: DESIGN.participantBlockOrder,
       allPositions: allPositionsStr || null,
       allColors: allColorsStr || null,
       allOrientations: allOrientationsStr || null
@@ -247,16 +261,16 @@ const singleSetTrialConfig = {
               {
                   timeline: [blankScreenStageOneLong],
                   conditional_function: function() {
-                      return (jsPsych.timelineVariable('stimulusType', true) === 'circle' && expInfo.DESIGN.participantGroup === 'colorFirst') ||
-                             (jsPsych.timelineVariable('stimulusType', true) === 'circle_with_line' && expInfo.DESIGN.participantGroup === 'orientationFirst');
+                      return (jsPsych.timelineVariable('stimulusType', true) === 'circle' && DESIGN.participantGroup === 'colorFirst') ||
+                             (jsPsych.timelineVariable('stimulusType', true) === 'circle_with_line' && DESIGN.participantGroup === 'orientationFirst');
                   }
               },
               // Display short blank screen if conditions are not met
               {
                   timeline: [blankScreenStageOneShort],
                   conditional_function: function() {
-                      return !((jsPsych.timelineVariable('stimulusType', true) === 'circle' && expInfo.DESIGN.participantGroup === 'colorFirst') ||
-                               (jsPsych.timelineVariable('stimulusType', true) === 'circle_with_line' && expInfo.DESIGN.participantGroup === 'orientationFirst'));
+                      return !((jsPsych.timelineVariable('stimulusType', true) === 'circle' && DESIGN.participantGroup === 'colorFirst') ||
+                               (jsPsych.timelineVariable('stimulusType', true) === 'circle_with_line' && DESIGN.participantGroup === 'orientationFirst'));
                   }
               }
           ]
@@ -356,8 +370,8 @@ const single_set_trial = {
             
 /************************************** Block 2 preparation **************************************/
 
-const participantGroup = expInfo.DESIGN.participantGroup;
-const participantBlockType = expInfo.DESIGN.participantBlockType;
+const participantGroup = DESIGN.participantGroup;
+const participantBlockType = DESIGN.participantBlockType;
 
 // Display stimuli for the dual set
 
@@ -491,9 +505,9 @@ const displayStimuliDualSet = {
       blockNumber: counters.blockNumber,
       segmentNumber: counters.segmentNumber,
       subjectID: subjectID,
-      whichStimuliFirst: expInfo.DESIGN.participantGroup,
-      areTrialsRandomOrSystematic: expInfo.DESIGN.participantBlockType,
-      dualOrSingleSetFirst: expInfo.DESIGN.participantBlockOrder,
+      whichStimuliFirst: DESIGN.participantGroup,
+      areTrialsRandomOrSystematic: DESIGN.participantBlockType,
+      dualOrSingleSetFirst: DESIGN.participantBlockOrder,
       allPositions: allPositionsStr || null,
       allColors: allColorsStr || null,
       allOrientations: allOrientationsStr || null
@@ -633,19 +647,20 @@ const displayStimuliDualSet = {
 
     /************************************** Procedure **************************************/
 
+    var timeline: any[] = [];
 
-    // timeline.push(preload_screen);
-    // timeline.push(welcome_screen);
-    // timeline.push(consent_screen);
-    // timeline.push(notice_screen);
-    // timeline.push(browser_screen);
-    // timeline.push(fullMode_screen);
-    // timeline.push(instructionSlidesConfig);
+    timeline.push(preload_screen);
+    timeline.push(welcome_screen);
+    timeline.push(consent_screen);
+    timeline.push(notice_screen);
+    timeline.push(browser_screen);
+    timeline.push(fullMode_screen);
+    timeline.push(instructionSlidesConfig);
 
     // Here, we decide on the order of the blocks; do we first show the dual set or the single set? This depends on the participantBlockOrder
-    if (expInfo.DESIGN.participantBlockOrder === 'dualSetFirst') {
+    if (DESIGN.participantBlockOrder === 'dualSetFirst') {
       // Dual Set First
-      timeline.push(getDualSetWarning(expInfo.DESIGN.participantBlockType));
+      timeline.push(getDualSetWarning(DESIGN.participantBlockType));
       timeline.push(dual_set_trial_practice);
       timeline.push({
         timeline: [practiceOver],
@@ -700,7 +715,7 @@ const displayStimuliDualSet = {
           func: resetBlockCounters
       });
       
-      timeline.push(getDualSetWarning(expInfo.DESIGN.participantBlockType));
+      timeline.push(getDualSetWarning(DESIGN.participantBlockType));
       timeline.push(dual_set_trial_practice);
       timeline.push({
         timeline: [practiceOver],
@@ -716,13 +731,49 @@ const displayStimuliDualSet = {
   }
   
 
-    // timeline.push(survey_screen);
-    // timeline.push(debrief_screen);
-    // timeline.push(closeFullScreen);
+    timeline.push(survey_screen);
+    timeline.push(debrief_screen);
+    timeline.push(closeFullScreen);
+
+    // Define the preload screen timeline
+    let empty_trial = {
+      type: HtmlKeyboardResponsePlugin,
+      stimulus: "",
+      trial_duration: 50,
+      on_start: function() {
+          initializeSubjectsList();
+          console.log("Subjects list initialized.");
+      },
+      on_finish: function() {
+          // Initialize subjects and get the participant ID
+          let subjectID = assignSubjectID();
+  
+          if (subjectID !== null) {
+              // Assign participant to a group using their ID
+              const { group, blockType, blockOrder } = assignParticipantGroup(subjectID);
+  
+              // Update DESIGN object with participant's group info
+              DESIGN.participantGroup = group;
+              DESIGN.participantBlockType = blockType;
+              DESIGN.participantBlockOrder = blockOrder;
+  
+          } else {
+              throw new Error("Failed to initialize participant ID.");
+          }
+          console.log("subjectID: ", subjectID);
+  
+          // Add the large timeline to the main timeline
+          jsPsych.addNodeToEndOfTimeline({ timeline: timeline }, function() {});
+      }
+  };
+
+    main_timeline.push(empty_trial);
+
     console.log("Final Timeline: ", timeline);
+    console.log("subjectID: ", subjectID);
 
     // Initialize and run the experiment
-    jsPsych.run(timeline);
+    jsPsych.run(main_timeline);
 
 
 
